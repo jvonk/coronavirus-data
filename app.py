@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# <a href="https://colab.research.google.com/github/jvonk/coronavirus-data/blob/master/coronavirus.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
-
-get_ipython().system('pip install plotly dash dash-html-components dash-core-components dash-table dash_bootstrap_components pycountry ipywidgets')
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -19,11 +16,10 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
-from getpass import getpass
 import requests
 import time
 from urllib.parse import quote
-from jupyter_plotly_dash import JupyterDash
+
 
 INPUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/"
 df_lookup = pd.read_csv(INPUT_URL+"UID_ISO_FIPS_LookUp_Table.csv");
@@ -52,9 +48,8 @@ for col in ['confirmed', 'deaths', 'recovered']:
 df['days']=[(date-df['date'][0]).days for date in df['date']]
 
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
-app = dash.Dash(__name__)
+app = dash.Dash(__name__, external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css'])
 dff=df[df['iso3'] == 'USA']
 app.layout = html.Div([
     html.Div([
@@ -208,4 +203,4 @@ def update_figure(date,graphs,data):
     }
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=False)
