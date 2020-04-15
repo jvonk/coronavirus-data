@@ -10,7 +10,7 @@ import dash_core_components as dcc
 import dash_html_components as html
 import flask
 
-df = pd.read_csv('df.csv')
+df = pd.read_pickle('df.pkl')
 
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
