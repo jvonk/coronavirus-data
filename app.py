@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -203,4 +200,4 @@ def update_figure(date,graphs,data):
     }
 
 if __name__ == '__main__':
-    app.run_server(debug=False)
+    app.run_server()
