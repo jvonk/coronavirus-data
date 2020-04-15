@@ -17,7 +17,6 @@ import requests
 import time
 from urllib.parse import quote
 
-
 INPUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/"
 df_lookup = pd.read_csv(INPUT_URL+"UID_ISO_FIPS_LookUp_Table.csv");
 
@@ -46,7 +45,10 @@ df['days']=[(date-df['date'][0]).days for date in df['date']]
 
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 
-app = dash.Dash(__name__, external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css'])
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+server=app.server
 dff=df[df['iso3'] == 'USA']
 app.layout = html.Div([
     html.Div([
@@ -199,5 +201,50 @@ def update_figure(date,graphs,data):
         )
     }
 
+"""
+@app.callback(
+    dash.dependencies.Output('time-series', 'figure'),
+    [dash.dependencies.Input('graph-with-slider', 'hoverData'),Input('date-slider', 'value'),Input('select-graph', 'value'),Input('select-data', 'value')])
+def update_timeseries(hoverData,date,graphs,data):
+    iso_name = hoverData['points'][0]['customdata']
+    dff = df[df['iso3'] == iso_name]
+    filter_dff=dff[dff["date"] == datetime.fromtimestamp(date)]
+    print(dff[dff["date"] == datetime.fromtimestamp(date)]['year'])
+    return {
+        'data': [dict(
+            x=dff['days'],
+            y=dff[data]
+        )],
+        'layout': dict(shapes=[
+            dict(
+                type="line",
+                xref="x",
+                yref="paper",
+                x0=filter_dff['days'],
+                y0=0,
+                x1=filter_dff['days'],
+                y1=1,
+                line=dict(
+                    color="Black",
+                    dash="dot"
+                )
+            ),dict(
+                type="line",
+                xref="paper",
+                yref="y",
+                x0=0,
+                y0=int(filter_dff[data]),
+                x1=1,
+                y1=int(filter_dff[data]),
+                line=dict(
+                    color="Black",
+                    dash="dot"
+                )
+            )
+        ])
+    }
+
+app
+"""
 if __name__ == '__main__':
-    app.run_server()
+    app.run_server(debug=True)
