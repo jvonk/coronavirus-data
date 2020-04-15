@@ -11,13 +11,11 @@ import dash_html_components as html
 import flask
 
 df = pd.read_pickle('df.pkl')
-print(df)
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 server = flask.Flask(__name__)
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets,server=server)
-dff=df[df['iso3'] == 'USA']
 app.layout = html.Div([
     html.Div([
         dcc.Graph(id='graph-with-slider', hoverData={'points': [{'customdata': 'USA'}]}),
@@ -25,36 +23,43 @@ app.layout = html.Div([
             id='clientside-figure-store',
             data=df.to_dict('records')
         )
-    ], style={'width': '49%', 'display': 'inline-block', 'padding': '0 20'}),
+    ], style={"height": "40%"}),
     html.Div([
         dcc.Graph(id='time-series')
-    ], style={'width': '49%', 'display': 'inline-block'}),
-    dcc.Dropdown(
-        id='select-graph',
-        options=[
-            {'label': 'Scatter',    'value': 'scatter'},
-            {'label': 'Choropleth', 'value': 'choropleth'}
-        ],
-        value=['choropleth'],
-        multi=True
-    ),    
-    dcc.Dropdown(
-        id='select-data',
-        options=[
-            {'label': 'confirmed',    'value': 'confirmed'},
-            {'label': 'deaths', 'value': 'deaths'},
-            {'label': 'recovered', 'value': 'recovered'}
-        ],
-        value='confirmed'
-    ),
-    dcc.Slider(
-        id='date-slider',
-        min=unixTimeMillis(df['date'].min()),
-        max=unixTimeMillis(df['date'].max()),
-        value=unixTimeMillis(df['date'].min()),
-        marks={unixTimeMillis(date):{'label':str(date.strftime('%m/%d')).lstrip('0').replace('/0','/'),'style':{'writing-mode': 'vertical-lr','text-orientation': 'sideways'}} for date in df['date']},
-        step=None
-    )
+    ], style={"height": "40%"}),
+    html.Div([
+        dcc.Dropdown(
+            id='select-graph',
+            options=[
+                {'label': 'Scatter',    'value': 'scatter'},
+                {'label': 'Choropleth', 'value': 'choropleth'}
+            ],
+            value=['choropleth'],
+            multi=True
+        )
+    ], style={'width': '250px', 'display': 'inline-block'}),
+    html.Div([
+        dcc.Dropdown(
+            id='select-data',
+            options=[
+                {'label': 'confirmed',    'value': 'confirmed'},
+                {'label': 'deaths', 'value': 'deaths'},
+                {'label': 'recovered', 'value': 'recovered'}
+            ],
+            value='confirmed'
+        )
+    ], style={'width': '125px', 'display': 'inline-block'}),
+    html.Div([
+        dcc.Slider(
+            id='date-slider',
+            min=unixTimeMillis(df['date'].min()),
+            max=unixTimeMillis(df['date'].max()),
+            value=unixTimeMillis(df['date'].min()),
+            marks={unixTimeMillis(date):{'label':str(date.strftime('%m/%d')).lstrip('0').replace('/0','/'),'style':{'writing-mode': 'vertical-lr','text-orientation': 'sideways'}} for date in df['date']},
+            step=None
+        )
+    ], style={'width': 'calc(100% - 400px)', 'display': 'inline-block'})
+
 ])
 
 app.clientside_callback(
@@ -91,7 +96,9 @@ app.clientside_callback(
                 'x':map.date,
                 'y':map[data]
             }],
-            'layout': {"shapes":[
+            'layout': {
+            'uirevision':true,
+            "shapes":[
                 {
                     "type":"line",
                     "xref":"x",
@@ -129,45 +136,74 @@ app.clientside_callback(
      Input('select-data', 'value')]
 )
 
-@app.callback(Output('graph-with-slider', 'figure'), [Input('date-slider', 'value'),Input('select-graph', 'value'),Input('select-data', 'value')])
-def update_figure(date,graphs,data):
-    filtered_df = df[df["date"] == datetime.fromtimestamp(date)]
-    traces=[]
-    if 'scatter' in graphs:
-        traces.append(go.Scattergeo(
-            locations=filtered_df['iso3'],
-            text=filtered_df['Country/Region'],
-            customdata=filtered_df['iso3'],
-            marker={'size':filtered_df[data]/300,'sizemode':'area','color':'red'}
-        ))
-    if 'choropleth' in graphs:
-        traces.append(go.Choropleth(
-            locations=filtered_df['iso3'],
-            z=filtered_df[f'{data}_rate'],
-            zmin=0,
-            zmax=1000000,
-            text=filtered_df['Country/Region'],
-            customdata=filtered_df['iso3'],
-            autocolorscale=False,
-            colorscale=[[0.0, 'rgb(255,255,255)'],
-                        [1e-06, 'rgb(255,245,240)'],
-                        [1e-05, 'rgb(254,224,210)'],
-                        [3.2e-05, 'rgb(252,187,161)'],
-                        [0.0001, 'rgb(252,146,114)'],
-                        [0.00032, 'rgb(251,106,74)'],
-                        [0.001, 'rgb(239,59,44)'],
-                        [0.01, 'rgb(203,24,29)'],
-                        [0.1, 'rgb(165,15,21)'],
-                        [1.0, 'rgb(103,0,13)']]
-        ))
-    return {
-        'data': traces,
-        'layout': dict(
-            uirevision = True,
-            geo = {'scope':'world', 'showframe': True, 'showcoastlines': True},
-            hovermode='closest'
-        )
+app.clientside_callback(
+    """
+    function(df, date, graphs, data) {
+        temp=Math.round((new Date(date*1000)-new Date(df[0].date))/86400000);
+        arr=df.reduce(function(ind, el, i) { 
+                    if (el.days==temp) 
+                        ind.push(el); 
+                    return ind; 
+                }, []);
+        var map = {};
+        for (var i = 0; i < arr.length; ++i) {
+            for (var key in arr[i]) {
+                if (!map[key])
+                    map[key]=[]
+                if (key==data)
+                    map[key].push(arr[i][key]/300)
+                else
+                    map[key].push(arr[i][key])
+            }
+        }
+        var traces = [];
+        if (graphs.includes('scatter')) {
+            traces.push({
+                'type':'scattergeo',
+                'locations':map['iso3'],
+                'text':map['Country/Region'],
+                'customdata':map['iso3'],
+                'marker':{'size':map[data],'sizemode':'area','color':'red'}
+            })
+        }
+        if (graphs.includes('choropleth')) {
+            traces.push({
+                'type':'choropleth',
+                'locations':map['iso3'],
+                'z':map[data+'_rate'],
+                'zmin':0,
+                'zmax':1000000,
+                'text':map['Country/Region'],
+                'customdata':map['iso3'],
+                'autocolorscale':false,
+                'colorscale':[[0.0, 'rgb(255,255,255)'],
+                            [1e-06, 'rgb(255,245,240)'],
+                            [1e-05, 'rgb(254,224,210)'],
+                            [3.2e-05, 'rgb(252,187,161)'],
+                            [0.0001, 'rgb(252,146,114)'],
+                            [0.00032, 'rgb(251,106,74)'],
+                            [0.001, 'rgb(239,59,44)'],
+                            [0.01, 'rgb(203,24,29)'],
+                            [0.1, 'rgb(165,15,21)'],
+                            [1.0, 'rgb(103,0,13)']],
+                'showscale':false
+            })
+        }
+        return {
+            'data': traces,
+            'layout': {
+                'uirevision':true,
+                'geo':{'scope':'world', 'showframe': true, 'showcoastlines': true,},
+                'hovermode':'closest'
+            }
+        }
     }
-
+    """,
+    Output('graph-with-slider', 'figure'),
+    [Input('clientside-figure-store', 'data'),
+     Input('date-slider', 'value'),
+     Input('select-graph', 'value'),
+     Input('select-data', 'value')]
+)
 if __name__ == '__main__':
     app.run_server(debug=True)
