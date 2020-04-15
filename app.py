@@ -17,34 +17,8 @@ import requests
 import time
 from urllib.parse import quote
 
-INPUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/"
-df_lookup = pd.read_csv(INPUT_URL+"UID_ISO_FIPS_LookUp_Table.csv");
-
-def transform_and_standardize(df, var_name):
-    df = df.drop(columns=['Lat', 'Long']).merge(
-        df_lookup.rename(columns={'Country_Region': 'Country/Region', 'Province_State': 'Province/State'})[['Country/Region', 'Province/State', 'iso3','Population']],
-        how='outer',
-        on=['Country/Region', 'Province/State']
-    ).dropna(subset=["iso3"])
-    df = df.groupby(['iso3','Country/Region']).sum().reset_index()
-    df = df.melt(id_vars=[df.columns[0],df.columns[1],df.columns[-1]], 
-        value_vars=df.columns[2:-1], 
-        var_name='date', 
-        value_name=var_name
-    ).dropna()
-    df['date']=pd.to_datetime(df['date'])
-    return df.sort_values(by=['iso3', 'date'])
-
-df_confirmed = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"), 'confirmed')
-df_deaths = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_deaths_global.csv"), 'deaths')
-df_recovered = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_recovered_global.csv"), 'recovered')
-df = df_confirmed.merge(df_deaths,how='outer',on=['date', 'iso3', 'Population','Country/Region']).merge(df_recovered,how='outer',on=['date', 'iso3', 'Population','Country/Region'])
-for col in ['confirmed', 'deaths', 'recovered']:
-    df[f'{col}_rate'] = (df[col]/df['Population']*100000000).astype('int64')
-df['days']=[(date-df['date'][0]).days for date in df['date']]
-
+    df = pd.read_csv('df.csv')
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
-
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
