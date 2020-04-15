@@ -1,23 +1,16 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 import os
-import plotly
+from datetime import datetime, timedelta
+import time
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.express as px
-import imageio
-import json
-import pycountry
 import dash
+from dash.dependencies import Input, Output, State
 import dash_core_components as dcc
 import dash_html_components as html
-from dash.dependencies import Input, Output, State
-import requests
-import time
-from urllib.parse import quote
 
-    df = pd.read_csv('df.csv')
+df = pd.read_csv('df.csv')
+
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
@@ -175,50 +168,5 @@ def update_figure(date,graphs,data):
         )
     }
 
-"""
-@app.callback(
-    dash.dependencies.Output('time-series', 'figure'),
-    [dash.dependencies.Input('graph-with-slider', 'hoverData'),Input('date-slider', 'value'),Input('select-graph', 'value'),Input('select-data', 'value')])
-def update_timeseries(hoverData,date,graphs,data):
-    iso_name = hoverData['points'][0]['customdata']
-    dff = df[df['iso3'] == iso_name]
-    filter_dff=dff[dff["date"] == datetime.fromtimestamp(date)]
-    print(dff[dff["date"] == datetime.fromtimestamp(date)]['year'])
-    return {
-        'data': [dict(
-            x=dff['days'],
-            y=dff[data]
-        )],
-        'layout': dict(shapes=[
-            dict(
-                type="line",
-                xref="x",
-                yref="paper",
-                x0=filter_dff['days'],
-                y0=0,
-                x1=filter_dff['days'],
-                y1=1,
-                line=dict(
-                    color="Black",
-                    dash="dot"
-                )
-            ),dict(
-                type="line",
-                xref="paper",
-                yref="y",
-                x0=0,
-                y0=int(filter_dff[data]),
-                x1=1,
-                y1=int(filter_dff[data]),
-                line=dict(
-                    color="Black",
-                    dash="dot"
-                )
-            )
-        ])
-    }
-
-app
-"""
 if __name__ == '__main__':
     app.run_server(debug=True)
