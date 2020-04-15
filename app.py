@@ -11,7 +11,7 @@ import dash_html_components as html
 import flask
 
 df = pd.read_pickle('df.pkl')
-
+print(df)
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
