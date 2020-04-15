@@ -1,3 +1,5 @@
+numpy
+pandas
 plotly
 dash
 dash-html-components
