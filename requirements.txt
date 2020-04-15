@@ -6,3 +6,4 @@ dash-table
 dash_bootstrap_components
 pycountry
 ipywidgets
+gunicorn
