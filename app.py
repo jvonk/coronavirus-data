@@ -8,14 +8,15 @@ import dash
 from dash.dependencies import Input, Output, State
 import dash_core_components as dcc
 import dash_html_components as html
+import flask
 
 df = pd.read_csv('df.csv')
 
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
-server=app.server
+server = flask.Flask(__name__)
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets,server=server)
 dff=df[df['iso3'] == 'USA']
 app.layout = html.Div([
     html.Div([
