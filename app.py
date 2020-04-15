@@ -3,9 +3,6 @@
 
 # <a href="https://colab.research.google.com/github/jvonk/coronavirus-data/blob/master/coronavirus.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
-# In[1]:
-
-
 get_ipython().system('pip install plotly dash dash-html-components dash-core-components dash-table dash_bootstrap_components pycountry ipywidgets')
 import pandas as pd
 import numpy as np
@@ -25,7 +22,8 @@ from dash.dependencies import Input, Output, State
 from getpass import getpass
 import requests
 import time
-
+from urllib.parse import quote
+from jupyter_plotly_dash import JupyterDash
 
 INPUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/"
 df_lookup = pd.read_csv(INPUT_URL+"UID_ISO_FIPS_LookUp_Table.csv");
@@ -50,55 +48,164 @@ df_deaths = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_
 df_recovered = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_recovered_global.csv"), 'recovered')
 df = df_confirmed.merge(df_deaths,how='outer',on=['date', 'iso3', 'Population','Country/Region']).merge(df_recovered,how='outer',on=['date', 'iso3', 'Population','Country/Region'])
 for col in ['confirmed', 'deaths', 'recovered']:
-    df[f'{col}_rate'] = (df[col]/df['Population']*100000000).astype(int)
-df['year']=[(date-df['date'][0]).days for date in df['date']]
+    df[f'{col}_rate'] = (df[col]/df['Population']*100000000).astype('int64')
+df['days']=[(date-df['date'][0]).days for date in df['date']]
 
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
-
+app = dash.Dash(__name__)
+dff=df[df['iso3'] == 'USA']
 app.layout = html.Div([
-    dcc.Graph(id='graph-with-slider'),
-    dcc.RangeSlider(
-        id='year-slider',
+    html.Div([
+        dcc.Graph(id='graph-with-slider', hoverData={'points': [{'customdata': 'USA'}]}),
+        dcc.Store(
+            id='clientside-figure-store',
+            data=df.to_dict('records')
+        )
+    ], style={'width': '49%', 'display': 'inline-block', 'padding': '0 20'}),
+    html.Div([
+        dcc.Graph(id='time-series')
+    ], style={'width': '49%', 'display': 'inline-block'}),
+    dcc.Dropdown(
+        id='select-graph',
+        options=[
+            {'label': 'Scatter',    'value': 'scatter'},
+            {'label': 'Choropleth', 'value': 'choropleth'}
+        ],
+        value=['choropleth'],
+        multi=True
+    ),    
+    dcc.Dropdown(
+        id='select-data',
+        options=[
+            {'label': 'confirmed',    'value': 'confirmed'},
+            {'label': 'deaths', 'value': 'deaths'},
+            {'label': 'recovered', 'value': 'recovered'}
+        ],
+        value='confirmed'
+    ),
+    dcc.Slider(
+        id='date-slider',
         min=unixTimeMillis(df['date'].min()),
         max=unixTimeMillis(df['date'].max()),
-        value=[unixTimeMillis(df['date'].min()),unixTimeMillis(df['date'].max())],
-        marks={unixTimeMillis(date):str(date.strftime('%Y-%m-%d')) for date in df['date']},
+        value=unixTimeMillis(df['date'].min()),
+        marks={unixTimeMillis(date):{'label':str(date.strftime('%m/%d')).lstrip('0').replace('/0','/'),'style':{'writing-mode': 'vertical-lr','text-orientation': 'sideways'}} for date in df['date']},
         step=None
     )
 ])
 
-
-@app.callback(
-    Output('graph-with-slider', 'figure'),
-    [Input('year-slider', 'value')])
-def update_figure(selected_year):
-    filtered_df = df[df["date"] == datetime.fromtimestamp(selected_year[0])]
-    traces = []
-    traces.append(dict(
-            x=filtered_df['confirmed'],
-            y=filtered_df['deaths'],
-            text=filtered_df['Country/Region'],
-            mode='markers',
-            opacity=0.7,
-            marker={
-                'size': 10,
-                'line': {'width': 0.5, 'color': 'white'}
+app.clientside_callback(
+    """
+    function(hoverData, df, date, graph, data) {
+        iso_name = hoverData.points[0].customdata
+        temp=Math.round((new Date(date*1000)-new Date(df[0].date))/86400000);
+        arr=df.reduce(function(ind, el, i) { 
+                    if (el.iso3==iso_name) 
+                        ind.push(el); 
+                    return ind; 
+                }, []);
+        filter=arr.reduce(function(ind, el, i) { 
+                    if (el.days==temp) 
+                        ind.push(el); 
+                    return ind; 
+                }, []);
+        var map = {};
+        for (var i = 0; i < arr.length; ++i) {
+            for (var key in arr[i]) {
+                if (!map[key])
+                    map[key]=[]
+                map[key].push(arr[i][key])
             }
-        ))
+        }
+        var fmap = {};
+        for (var i = 0; i < filter.length; ++i) {
+            for (var key in filter[i]) {
+                fmap[key]=filter[i][key]
+            }
+        }
+        return {
+            'data': [{
+                'x':map.date,
+                'y':map[data]
+            }],
+            'layout': {"shapes":[
+                {
+                    "type":"line",
+                    "xref":"x",
+                    "yref":"paper",
+                    "x0":fmap.date,
+                    "y0":0,
+                    "x1":fmap.date,
+                    "y1":1,
+                    "line":{
+                        "color":"Black",
+                        "dash":"dot"
+                    }
+                },{
+                    "type":"line",
+                    "xref":"paper",
+                    "yref":"y",
+                    "x0":0,
+                    "y0":fmap[data],
+                    "x1":1,
+                    "y1":fmap[data],
+                    "line":{
+                        "color":"Black",
+                        "dash":"dot"
+                    }
+                }
+            ]}
+        };
+    }
+    """,
+    Output('time-series', 'figure'),
+    [Input('graph-with-slider', 'hoverData'),
+     Input('clientside-figure-store', 'data'),
+     Input('date-slider', 'value'),
+     Input('select-graph', 'value'),
+     Input('select-data', 'value')]
+)
 
+@app.callback(Output('graph-with-slider', 'figure'), [Input('date-slider', 'value'),Input('select-graph', 'value'),Input('select-data', 'value')])
+def update_figure(date,graphs,data):
+    filtered_df = df[df["date"] == datetime.fromtimestamp(date)]
+    traces=[]
+    if 'scatter' in graphs:
+        traces.append(go.Scattergeo(
+            locations=filtered_df['iso3'],
+            text=filtered_df['Country/Region'],
+            customdata=filtered_df['iso3'],
+            marker={'size':filtered_df[data]/300,'sizemode':'area','color':'red'}
+        ))
+    if 'choropleth' in graphs:
+        traces.append(go.Choropleth(
+            locations=filtered_df['iso3'],
+            z=filtered_df[f'{data}_rate'],
+            zmin=0,
+            zmax=1000000,
+            text=filtered_df['Country/Region'],
+            customdata=filtered_df['iso3'],
+            autocolorscale=False,
+            colorscale=[[0.0, 'rgb(255,255,255)'],
+                        [1e-06, 'rgb(255,245,240)'],
+                        [1e-05, 'rgb(254,224,210)'],
+                        [3.2e-05, 'rgb(252,187,161)'],
+                        [0.0001, 'rgb(252,146,114)'],
+                        [0.00032, 'rgb(251,106,74)'],
+                        [0.001, 'rgb(239,59,44)'],
+                        [0.01, 'rgb(203,24,29)'],
+                        [0.1, 'rgb(165,15,21)'],
+                        [1.0, 'rgb(103,0,13)']]
+        ))
     return {
         'data': traces,
         'layout': dict(
-            margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
-            legend={'x': 0, 'y': 1},
-            hovermode='closest',
-            transition = {'duration': 500},
+            uirevision = True,
+            geo = {'scope':'world', 'showframe': True, 'showcoastlines': True},
+            hovermode='closest'
         )
     }
 
-
 if __name__ == '__main__':
-    app.run_server(debug=False)
+    app.run_server(debug=True)
