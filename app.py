@@ -23,10 +23,10 @@ app.layout = html.Div([
             id='clientside-figure-store',
             data=df.to_dict('records')
         )
-    ], style={"height": "40%"}),
+    ], style={"height": "calc(50vh - 40px)"}),
     html.Div([
         dcc.Graph(id='time-series')
-    ], style={"height": "40%"}),
+    ], style={"height": "calc(50vh - 40px)"}),
     html.Div([
         dcc.Dropdown(
             id='select-graph',
@@ -192,8 +192,9 @@ app.clientside_callback(
         return {
             'data': traces,
             'layout': {
+                'margin':{'l':0,'r':0,'t':0,'b':0,'pad':0},
                 'uirevision':true,
-                'geo':{'scope':'world', 'showframe': true, 'showcoastlines': true,},
+                'geo':{'margin':{'l':0,'r':0,'t':0,'b':0,'pad':0},'uirevision':true,'showland':true,'landcolor':'#dddddd','showcountries':true,'scope':'world', 'showframe': false, 'showcoastlines': true},
                 'hovermode':'closest'
             }
         }
