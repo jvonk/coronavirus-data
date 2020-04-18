@@ -1,3 +1,66 @@
+import pandas as pd
+import numpy as np
+import os
+from datetime import datetime, timedelta
+import time
+import plotly.graph_objects as go
+import dash
+from dash.dependencies import Input, Output, State
+import dash_core_components as dcc
+import dash_html_components as html
+import flask
+from flask_caching import Cache
+
+INPUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/"
+df_lookup = pd.read_csv(INPUT_URL+"UID_ISO_FIPS_LookUp_Table.csv");
+
+def transform_and_standardize(df, var_name):
+    df = df.drop(columns=['Lat', 'Long']).merge(
+        df_lookup.rename(columns={'Country_Region': 'Country/Region', 'Province_State': 'Province/State'})[['Country/Region', 'Province/State', 'iso3','Population']],
+        how='outer',
+        on=['Country/Region', 'Province/State']
+    ).dropna(subset=["iso3"])
+    df = df.groupby(['iso3','Country/Region']).sum().reset_index()
+    df = df.melt(id_vars=[df.columns[0],df.columns[1],df.columns[-1]], 
+        value_vars=df.columns[2:-1], 
+        var_name='date', 
+        value_name=var_name
+    ).dropna()
+    df['date']=pd.to_datetime(df['date'])
+    return df.sort_values(by=['iso3', 'date'])
+
+def transform_and_standardize_us(df, var_name):
+    if var_name is 'deaths':
+        df=df.drop(columns=['Population'])
+    df = df.drop(columns=['UID','iso2','iso3','Country_Region','code3','Lat','Long_']).groupby(['FIPS','Admin2','Province_State']).sum().reset_index()
+    df = df.melt(id_vars=[df.columns[0],df.columns[1],df.columns[2]], 
+        value_vars=df.columns[3:], 
+        var_name='date', 
+        value_name=var_name
+    ).dropna()
+    df['date']=pd.to_datetime(df['date'])
+    return df.sort_values(by=['FIPS', 'date'])
+
+df_confirmed = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"), 'confirmed')
+df_deaths = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_deaths_global.csv"), 'deaths')
+df_recovered = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_recovered_global.csv"), 'recovered')
+df = df_confirmed.merge(df_deaths,how='outer',on=['date', 'iso3', 'Population','Country/Region']).merge(df_recovered,how='outer',on=['date', 'iso3', 'Population','Country/Region'])
+df['days']=(df['date'] - df['date'][0]).dt.days
+for col in ['confirmed', 'deaths', 'recovered']:
+    df[f'{col}_rate'] = (df[col]/df['Population']*100000000).astype('int64')
+
+df_confirmed_us = transform_and_standardize_us(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"), 'confirmed')
+df_deaths_us = transform_and_standardize_us(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_deaths_US.csv"), 'deaths')
+df_us=df_confirmed_us.merge(df_deaths_us,how='outer',on=['date', 'FIPS', 'Admin2','Province_State'])
+df_us=df_us.merge(df_lookup[['FIPS','Population']],
+                    how='outer',
+                    on=['FIPS']).dropna()
+df_us = df_us.astype({'FIPS':'int','confirmed':'int','deaths':'int','Population':'int'})
+df_us['days']=(df_us['date'] - df_us['date'][0]).dt.days
+for col in ['confirmed', 'deaths']:
+    df_states[f'{col}_rate'] = (df_states[col]/df_states['Population']*100000000).astype('int64')
+df_states['abbreviation']=df_states['Province_State'].map({'Alabama':'AL','Alaska':'AK','American Samoa':'AS','Arizona':'AZ','Arkansas':'AR','California':'CA','Colorado':'CO','Connecticut':'CT','Delaware':'DE','District of Columbia':'DC','Florida':'FL','Georgia':'GA','Guam':'GU','Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS','Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA','Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT','Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM','New York':'NY','North Carolina':'NC','North Dakota':'ND','Northern Mariana Islands':'MP','Ohio':'OH','Oklahoma':'OK','Oregon':'OR','Pennsylvania':'PA','Puerto Rico':'PR','Rhode Island':'RI','South Carolina':'SC','South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT','Virgin Islands':'VI','Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY'})
+
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', 'https://codepen.io/chriddyp/pen/brPBPO.css']
