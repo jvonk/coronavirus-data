@@ -1,32 +1,35 @@
-import pandas as pd
-import numpy as np
-import os
-from datetime import datetime, timedelta
-import time
-import plotly.graph_objects as go
-import dash
-from dash.dependencies import Input, Output, State
-import dash_core_components as dcc
-import dash_html_components as html
-import flask
-
-df = pd.read_pickle('df.pkl')
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', 'https://codepen.io/chriddyp/pen/brPBPO.css']
 server = flask.Flask(__name__)
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets,server=server)
+CACHE_CONFIG = {
+    'CACHE_TYPE': 'simple',
+    'CACHE_REDIS_URL': os.environ.get('REDIS_URL', 'redis://localhost:6379')
+}
+
+cache = Cache()
+cache.init_app(app.server, config=CACHE_CONFIG)
+TIMEOUT=86400
 app.layout = html.Div([
+    dcc.Store(id="date"),
+    dcc.Store(id="location"),
     html.Div([
         dcc.Graph(id='graph-with-slider', hoverData={'points': [{'customdata': 'USA'}]}),
-        dcc.Store(
-            id='clientside-figure-store',
-            data=df.to_dict('records')
-        )
     ], style={"height": "calc(50vh - 40px)"}),
     html.Div([
         dcc.Graph(id='time-series')
     ], style={"height": "calc(50vh - 40px)"}),
+    html.Div([
+        dcc.Dropdown(
+            id='select-area',
+            options=[
+                {'label':'World','value':'World'},
+                {'label':'USA','value':'USA'}
+            ],
+            value='World',
+        )
+    ], style={'width': '175px', 'display': 'inline-block'}),
     html.Div([
         dcc.Dropdown(
             id='select-graph',
@@ -58,124 +61,73 @@ app.layout = html.Div([
             marks={unixTimeMillis(date):{'label':str(date.strftime('%m/%d')).lstrip('0').replace('/0','/'),'style':{'writing-mode': 'vertical-lr','text-orientation': 'sideways'}} for date in df['date']},
             step=None
         )
-    ], style={'width': 'calc(100% - 400px)', 'display': 'inline-block'})
+    ], style={'width': 'calc(100% - 550px)', 'display': 'inline-block'})
 
 ])
 
-app.clientside_callback(
-    """
-    function(hoverData, df, date, graph, data) {
-        iso_name = hoverData.points[0].customdata
-        temp=Math.round((new Date(date*1000)-new Date(df[0].date))/86400000);
-        arr=df.reduce(function(ind, el, i) { 
-                    if (el.iso3==iso_name) 
-                        ind.push(el); 
-                    return ind; 
-                }, []);
-        filter=arr.reduce(function(ind, el, i) { 
-                    if (el.days==temp) 
-                        ind.push(el); 
-                    return ind; 
-                }, []);
-        var map = {};
-        for (var i = 0; i < arr.length; ++i) {
-            for (var key in arr[i]) {
-                if (!map[key])
-                    map[key]=[]
-                map[key].push(arr[i][key])
-            }
-        }
-        var fmap = {};
-        for (var i = 0; i < filter.length; ++i) {
-            for (var key in filter[i]) {
-                fmap[key]=filter[i][key]
-            }
-        }
-        return {
-            'data': [{
-                'x':map.date,
-                'y':map[data]
-            }],
-            'layout': {
-            'uirevision':true,
-            "shapes":[
-                {
-                    "type":"line",
-                    "xref":"x",
-                    "yref":"paper",
-                    "x0":fmap.date,
-                    "y0":0,
-                    "x1":fmap.date,
-                    "y1":1,
-                    "line":{
-                        "color":"Black",
-                        "dash":"dot"
-                    }
-                },{
-                    "type":"line",
-                    "xref":"paper",
-                    "yref":"y",
-                    "x0":0,
-                    "y0":fmap[data],
-                    "x1":1,
-                    "y1":fmap[data],
-                    "line":{
-                        "color":"Black",
-                        "dash":"dot"
-                    }
-                }
-            ]}
-        };
-    }
-    """,
-    Output('time-series', 'figure'),
-    [Input('graph-with-slider', 'hoverData'),
-     Input('clientside-figure-store', 'data'),
-     Input('date-slider', 'value'),
-     Input('select-graph', 'value'),
-     Input('select-data', 'value')]
-)
+@app.callback(Output('date', 'data'),
+             [Input('date-slider', 'value'),
+              Input('select-area', 'value')])
+@cache.memoize()
+def df_date(date, area):
+    date_parsed=datetime.fromtimestamp(date)
+    temp = df_states if area == "USA" else df
+    return temp.query('date==@date_parsed').to_dict('list')
+
+@app.callback(Output('location', 'data'),
+             [Input('select-data', 'value'),
+              Input('select-area', 'value')])
+@cache.memoize()
+def df_location(data, area):
+    temp = df_states.groupby('abbreviation') if area == "USA" else df.groupby('iso3')
+    return temp[['date',data]].apply(lambda x: x.values.T.tolist()).to_dict()
 
 app.clientside_callback(
     """
-    function(df, date, graphs, data) {
-        temp=Math.round((new Date(date*1000)-new Date(df[0].date))/86400000);
-        arr=df.reduce(function(ind, el, i) { 
-                    if (el.days==temp) 
-                        ind.push(el); 
-                    return ind; 
-                }, []);
-        var map = {};
-        for (var i = 0; i < arr.length; ++i) {
-            for (var key in arr[i]) {
-                if (!map[key])
-                    map[key]=[]
-                if (key==data)
-                    map[key].push(arr[i][key]/300)
-                else
-                    map[key].push(arr[i][key])
-            }
+    function(df_by_loc, hoverData) {
+        var loc_name=hoverData['points'][0]['location'] || 'USA'
+        return {
+            'data': [{
+                'x':df_by_loc[loc_name][0],
+                'y':df_by_loc[loc_name][1]
+            }]
         }
-        var traces = [];
-        if (graphs.includes('scatter')) {
-            traces.push({
+    }
+    """,
+    Output('time-series', 'figure'),
+   [Input('location', 'data'),
+    Input('graph-with-slider', 'hoverData')]
+)
+
+@app.callback(Output('graph-with-slider', 'figure'),
+             [Input('date', 'data'),
+              Input('date-slider', 'value'),
+              Input('select-graph', 'value'),
+              Input('select-data', 'value')])
+def update_map(df_by_date, date, graph, data):
+    traces=[]
+    if 'Province_State' in df_by_date:
+        scope='usa'
+        if 'scatter' in graph:
+            traces.append({
                 'type':'scattergeo',
-                'locations':map['iso3'],
-                'text':map['Country/Region'],
-                'customdata':map['iso3'],
-                'marker':{'size':map[data],'sizemode':'area','color':'red'}
+                'locations':df_by_date['abbreviation'],
+                'locationmode':'USA-states',
+                'text':df_by_date['Province_State'],
+                'customdata':"World"*len(df[data]),
+                'marker':{'size':[x/15 for x in df_by_date[data]],'sizemode':'area','color':'red'}
             })
-        }
-        if (graphs.includes('choropleth')) {
-            traces.push({
+        if 'choropleth' in graph:
+            traces.append({
                 'type':'choropleth',
-                'locations':map['iso3'],
-                'z':map[data+'_rate'],
+                'locations':df_by_date['abbreviation'],
+                'locationmode':'USA-states',
+                'z':df_by_date[f'{data}_rate'],
                 'zmin':0,
                 'zmax':1000000,
-                'text':map['Country/Region'],
-                'customdata':map['iso3'],
-                'autocolorscale':false,
+                'text':df_by_date['Province_State'],
+                'customdata':"World"*len(df[data]),
+                'autocolorscale':False,
                 'colorscale':[[0.0, 'rgb(255,255,255)'],
                             [1e-06, 'rgb(255,245,240)'],
                             [1e-05, 'rgb(254,224,210)'],
@@ -186,25 +138,72 @@ app.clientside_callback(
                             [0.01, 'rgb(203,24,29)'],
                             [0.1, 'rgb(165,15,21)'],
                             [1.0, 'rgb(103,0,13)']],
-                'showscale':false
+                'showscale':False
             })
-        }
-        return {
-            'data': traces,
-            'layout': {
-                'margin':{'l':0,'r':0,'t':0,'b':0,'pad':0},
-                'uirevision':true,
-                'geo':{'margin':{'l':0,'r':0,'t':0,'b':0,'pad':0},'uirevision':true,'showland':true,'landcolor':'#dddddd','showcountries':true,'scope':'world', 'showframe': false, 'showcoastlines': true},
-                'hovermode':'closest'
-            }
+    else:
+        scope='world'
+        if 'scatter' in graph:
+            traces.append({
+                'type':'scattergeo',
+                'locations':df_by_date['iso3'],
+                'locationmode':'ISO-3',
+                'text':df_by_date['Country/Region'],
+                'customdata':["USA" if x=="USA" else "World" for x in df_by_date['iso3']],
+                'marker':{'size':[x/500 for x in df_by_date[data]],'sizemode':'area','color':'red'}
+            })
+        if 'choropleth' in graph:
+            traces.append({
+                'type':'choropleth',
+                'locations':df_by_date['iso3'],
+                'locationmode':'ISO-3',
+                'z':df_by_date[f'{data}_rate'],
+                'zmin':0,
+                'zmax':1000000,
+                'text':df_by_date['Country/Region'],
+                'customdata':["USA" if x=="USA" else "World" for x in df_by_date['iso3']],
+                'autocolorscale':False,
+                'colorscale':[[0.0, 'rgb(255,255,255)'],
+                            [1e-06, 'rgb(255,245,240)'],
+                            [1e-05, 'rgb(254,224,210)'],
+                            [3.2e-05, 'rgb(252,187,161)'],
+                            [0.0001, 'rgb(252,146,114)'],
+                            [0.00032, 'rgb(251,106,74)'],
+                            [0.001, 'rgb(239,59,44)'],
+                            [0.01, 'rgb(203,24,29)'],
+                            [0.1, 'rgb(165,15,21)'],
+                            [1.0, 'rgb(103,0,13)']],
+                'showscale':False
+            })
+    return {
+        'data': traces,
+        'layout': {
+            'margin':{'l':0,'r':0,'t':0,'b':0,'pad':0},
+            'uirevision':True,
+            'geo':{'margin':{'l':0,'r':0,'t':0,'b':0,'pad':0},
+                   'uirevision':True,
+                   'showland':True,
+                   'landcolor':'#dddddd',
+                   'showcountries':True,
+                   'scope':scope,
+                   'showframe': False,
+                   'showcoastlines': True},
+            'hovermode':'closest'
         }
     }
+
+app.clientside_callback(
+    """
+    function(clickData) {
+        console.log(clickData)
+        if (clickData && clickData.points && clickData.points[0] && clickData.points[0].customdata)
+            return clickData.points[0].customdata 
+        else
+            return dash.no_update
+    }
     """,
-    Output('graph-with-slider', 'figure'),
-    [Input('clientside-figure-store', 'data'),
-     Input('date-slider', 'value'),
-     Input('select-graph', 'value'),
-     Input('select-data', 'value')]
+    Output('select-area', 'value'),
+    [Input('graph-with-slider', 'clickData')]
 )
+
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=False)
