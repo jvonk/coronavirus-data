@@ -10,3 +10,4 @@ pycountry
 ipywidgets
 gunicorn
 flask
+flask_caching
