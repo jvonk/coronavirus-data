@@ -61,6 +61,7 @@ for col in ['confirmed', 'deaths']:
 df_states['abbreviation']=df_states['Province_State'].map({'Alabama':'AL','Alaska':'AK','American Samoa':'AS','Arizona':'AZ','Arkansas':'AR','California':'CA','Colorado':'CO','Connecticut':'CT','Delaware':'DE','District of Columbia':'DC','Florida':'FL','Georgia':'GA','Guam':'GU','Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS','Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA','Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT','Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM','New York':'NY','North Carolina':'NC','North Dakota':'ND','Northern Mariana Islands':'MP','Ohio':'OH','Oklahoma':'OK','Oregon':'OR','Pennsylvania':'PA','Puerto Rico':'PR','Rhode Island':'RI','South Carolina':'SC','South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT','Virgin Islands':'VI','Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY'})
     
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
+
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', 'https://codepen.io/chriddyp/pen/brPBPO.css']
 server = flask.Flask(__name__)
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets,server=server)
@@ -68,11 +69,13 @@ CACHE_CONFIG = {
     'CACHE_TYPE': 'simple',
     'CACHE_REDIS_URL': os.environ.get('REDIS_URL', 'redis://localhost:6379')
 }
+
 cache = Cache()
 cache.init_app(app.server, config=CACHE_CONFIG)
 TIMEOUT=86400
 app.layout = html.Div([
     dcc.Store(id="date"),
+    dcc.Store(id="geojson"),
     dcc.Store(id="location"),
     html.Div([
         dcc.Graph(id='graph-with-slider', hoverData={'points': [{'customdata': 'USA'}]}),
@@ -86,7 +89,7 @@ app.layout = html.Div([
             options=[
                 {'label':'World','value':'World'},
                 {'label':'USA','value':'USA'}
-            ],
+            ]+[{'label':x,'value':x} for x in df_states['number'].unique()],
             value='World',
         )
     ], style={'width': '175px', 'display': 'inline-block'}),
@@ -131,15 +134,34 @@ app.layout = html.Div([
 @cache.memoize()
 def df_date(date, area):
     date_parsed=datetime.fromtimestamp(date)
-    temp = df_states if area == "USA" else df
+    if area=="World":
+        temp=df
+    elif area=="USA":
+        temp=df_states
+    else:
+        temp=df_us.query('number==@area')
     return temp.query('date==@date_parsed').to_dict('list')
+
+@app.callback(Output('geojson', 'data'),
+             [Input('select-area', 'value')])
+@cache.memoize()
+def df_geojson(area):
+    if area=="World" or area=="USA":
+        return dict()
+    else:
+        return df_geo[area]
 
 @app.callback(Output('location', 'data'),
              [Input('select-data', 'value'),
               Input('select-area', 'value')])
 @cache.memoize()
 def df_location(data, area):
-    temp = df_states.groupby('abbreviation') if area == "USA" else df.groupby('iso3')
+    if not area or area=="World":
+        temp=df.groupby('iso3')
+    elif area=="USA":
+        temp=df_states.groupby('abbreviation')
+    else:
+        temp=df_us.groupby('FIPS')
     return temp[['date',data]].apply(lambda x: x.values.T.tolist()).to_dict()
 
 app.clientside_callback(
@@ -161,12 +183,47 @@ app.clientside_callback(
 
 @app.callback(Output('graph-with-slider', 'figure'),
              [Input('date', 'data'),
+              Input('geojson', 'data'),
               Input('date-slider', 'value'),
               Input('select-graph', 'value'),
               Input('select-data', 'value')])
-def update_map(df_by_date, date, graph, data):
+def update_map(df_by_date, geojson_by_state, date, graph, data):
     traces=[]
-    if 'Province_State' in df_by_date:
+    if 'FIPS' in df_by_date:
+        scope='usa'
+        if 'scatter' in graph:
+            traces.append({
+                'type':'scattergeo',
+                'lat':df_by_date['Lat'],
+                'lon':df_by_date['Long_'],
+                'text':df_by_date['Admin2'],
+                'customdata':["USA"]*len(df_by_date[data]),
+                'marker':{'size':[x/100 for x in df_by_date[data]],'sizemode':'area','color':'red'}
+            })
+        if 'choropleth' in graph:
+            traces.append({
+                'type':'choropleth',
+                'geojson':geojson_by_state,
+                'locations':df_by_date['FIPS'],
+                'z':df_by_date[f'{data}_rate'],
+                'zmin':0,
+                'zmax':1000000,
+                'text':df_by_date['Admin2'],
+                'customdata':["USA"]*len(df_by_date[data]),
+                'autocolorscale':False,
+                'colorscale':[[0.0, 'rgb(255,255,255)'],
+                            [1e-06, 'rgb(255,245,240)'],
+                            [1e-05, 'rgb(254,224,210)'],
+                            [3.2e-05, 'rgb(252,187,161)'],
+                            [0.0001, 'rgb(252,146,114)'],
+                            [0.00032, 'rgb(251,106,74)'],
+                            [0.001, 'rgb(239,59,44)'],
+                            [0.01, 'rgb(203,24,29)'],
+                            [0.1, 'rgb(165,15,21)'],
+                            [1.0, 'rgb(103,0,13)']],
+                'showscale':False
+            })
+    elif 'Province_State' in df_by_date:
         scope='usa'
         if 'scatter' in graph:
             traces.append({
@@ -174,7 +231,7 @@ def update_map(df_by_date, date, graph, data):
                 'locations':df_by_date['abbreviation'],
                 'locationmode':'USA-states',
                 'text':df_by_date['Province_State'],
-                'customdata':"World"*len(df[data]),
+                'customdata':df_by_date['number'],
                 'marker':{'size':[x/15 for x in df_by_date[data]],'sizemode':'area','color':'red'}
             })
         if 'choropleth' in graph:
@@ -186,7 +243,7 @@ def update_map(df_by_date, date, graph, data):
                 'zmin':0,
                 'zmax':1000000,
                 'text':df_by_date['Province_State'],
-                'customdata':"World"*len(df[data]),
+                'customdata':df_by_date['number'],
                 'autocolorscale':False,
                 'colorscale':[[0.0, 'rgb(255,255,255)'],
                             [1e-06, 'rgb(255,245,240)'],
