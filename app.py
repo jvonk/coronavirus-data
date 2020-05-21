@@ -1,5 +1,5 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import os
 from datetime import datetime, timedelta
 import time
@@ -10,6 +10,8 @@ import dash_core_components as dcc
 import dash_html_components as html
 import flask
 from flask_caching import Cache
+import json
+from urllib.request import urlopen
 
 INPUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/"
 df_lookup = pd.read_csv(INPUT_URL+"UID_ISO_FIPS_LookUp_Table.csv");
@@ -364,7 +366,7 @@ def update_map(df_by_date, geojson_by_state, date, graph, data):
                    'showland':True,
                    'landcolor':'#dddddd',
                    'showcountries':True,
-                   'scope':scope,
+                   'fitbounds':'geojson',
                    'showframe': False,
                    'showcoastlines': True},
             'hovermode':'closest'
