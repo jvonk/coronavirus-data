@@ -32,9 +32,9 @@ def transform_and_standardize(df, var_name):
 def transform_and_standardize_us(df, var_name):
     if var_name is 'deaths':
         df=df.drop(columns=['Population'])
-    df = df.drop(columns=['UID','iso2','iso3','Country_Region','code3','Lat','Long_']).groupby(['FIPS','Admin2','Province_State']).sum().reset_index()
-    df = df.melt(id_vars=[df.columns[0],df.columns[1],df.columns[2]], 
-        value_vars=df.columns[3:], 
+    df = df.drop(columns=['UID','iso2','iso3','Country_Region','code3']).groupby(['FIPS','Admin2','Province_State','Lat','Long_']).sum().reset_index()
+    df = df.melt(id_vars=[df.columns[0],df.columns[1],df.columns[2],df.columns[3],df.columns[4]], 
+        value_vars=df.columns[5:], 
         var_name='date', 
         value_name=var_name
     ).dropna()
@@ -49,19 +49,82 @@ for col in ['confirmed', 'deaths', 'recovered']:
     df[f'{col}_rate'] = (df[col]/df['Population']*100000000).astype('int64')
 
 df_confirmed_us = transform_and_standardize_us(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"), 'confirmed')
-df_deaths_us = transform_and_standardize_us(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_deaths_US.csv"), 'deaths')
+df_deaths_us = transform_and_standardize_us(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_deaths_US.csv"), 'deaths').drop(columns=['Lat','Long_'])
 df_us=df_confirmed_us.merge(df_deaths_us,how='outer',on=['date', 'FIPS', 'Admin2','Province_State'])
 df_us=df_us.merge(df_lookup[['FIPS','Population']],
-                    how='outer',
-                    on=['FIPS']).dropna()
+                  how='outer',
+                  on=['FIPS']).dropna()
 df_us = df_us.astype({'FIPS':'int','confirmed':'int','deaths':'int','Population':'int'})
-df_states=df_us.drop(columns=['FIPS']).groupby(['Province_State','date']).sum().reset_index()
+df_states=df_us.drop(columns=['FIPS']).groupby(['Province_State','date',]).sum().reset_index()
 for col in ['confirmed', 'deaths']:
     df_states[f'{col}_rate'] = (df_states[col]/df_states['Population']*100000000).astype('int64')
-df_states['abbreviation']=df_states['Province_State'].map({'Alabama':'AL','Alaska':'AK','American Samoa':'AS','Arizona':'AZ','Arkansas':'AR','California':'CA','Colorado':'CO','Connecticut':'CT','Delaware':'DE','District of Columbia':'DC','Florida':'FL','Georgia':'GA','Guam':'GU','Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS','Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA','Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT','Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM','New York':'NY','North Carolina':'NC','North Dakota':'ND','Northern Mariana Islands':'MP','Ohio':'OH','Oklahoma':'OK','Oregon':'OR','Pennsylvania':'PA','Puerto Rico':'PR','Rhode Island':'RI','South Carolina':'SC','South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT','Virgin Islands':'VI','Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY'})
-    
-unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
+    df_us[f'{col}_rate'] = (df_us[col]/df_us['Population']*100000000).astype('int64')
+abbreviations={
+    "Alabama": ["01", "AL"],
+    "Alaska": ["02", "AK"],
+    "Arizona": ["04", "AZ"],
+    "Arkansas": ["05", "AR"],
+    "California": ["06", "CA"],
+    "Colorado": ["08", "CO"],
+    "Connecticut": ["09", "CT"],
+    "Delaware": ["10", "DE"],
+    "District of Columbia": ["11", "DC"],
+    "Florida": ["12", "FL"],
+    "Georgia": ["13", "GA"],
+    "Hawaii": ["15", "HI"],
+    "Idaho": ["16", "ID"],
+    "Illinois": ["17", "IL"],
+    "Indiana": ["18", "IN"],
+    "Iowa": ["19", "IA"],
+    "Kansas": ["20", "KS"],
+    "Kentucky": ["21", "KY"],
+    "Louisiana": ["22", "LA"],
+    "Maine": ["23", "ME"],
+    "Maryland": ["24", "MD"],
+    "Massachusetts": ["25", "MA"],
+    "Michigan": ["26", "MI"],
+    "Minnesota": ["27", "MN"],
+    "Mississippi": ["28", "MS"],
+    "Missouri": ["29", "MO"],
+    "Montana": ["30", "MT"],
+    "Nebraska": ["31", "NE"],
+    "Nevada": ["32", "NV"],
+    "New Hampshire": ["33", "NH"],
+    "New Jersey": ["34", "NJ"],
+    "New Mexico": ["35", "NM"],
+    "New York": ["36", "NY"],
+    "North Carolina": ["37", "NC"],
+    "North Dakota": ["38", "ND"],
+    "Ohio": ["39", "OH"],
+    "Oklahoma": ["40", "OK"],
+    "Oregon": ["41", "OR"],
+    "Pennsylvania": ["42", "PA"],
+    "Rhode Island": ["44", "RI"],
+    "South Carolina": ["45", "SC"],
+    "South Dakota": ["46", "SD"],
+    "Tennessee": ["47", "TN"],
+    "Texas": ["48", "TX"],
+    "Utah": ["49", "UT"],
+    "Vermont": ["50", "VT"],
+    "Virginia": ["51", "VA"],
+    "Washington": ["53", "WA"],
+    "West Virginia": ["54", "WV"],
+    "Wisconsin": ["55", "WI"],
+    "Wyoming": ["56", "WY"]
+}
+df_states['number']=df_states['Province_State'].map(lambda x: abbreviations[x][0])
+df_states['abbreviation']=df_states['Province_State'].map(lambda x: abbreviations[x][1])
+df_us['number']=df_us['Province_State'].map(lambda x: abbreviations[x][0])
+df_us['FIPS']=df_us['FIPS'].astype(str).str.zfill(5)
+with urlopen('https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json') as response:
+    counties = json.load(response)
+df_geo=dict()
+for county in counties['features']:
+    area=county['properties']['STATE']
+    df_geo.setdefault(area,{'type':'FeatureCollection', 'features':[]})
+    df_geo[area]['features'].append(county)
 
+unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', 'https://codepen.io/chriddyp/pen/brPBPO.css']
 server = flask.Flask(__name__)
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets,server=server)
