@@ -32,7 +32,7 @@ def transform_and_standardize(df, var_name):
     return df.sort_values(by=['iso3', 'date'])
 
 def transform_and_standardize_us(df, var_name):
-    if var_name is 'deaths':
+    if var_name == 'deaths':
         df=df.drop(columns=['Population'])
     df = df.drop(columns=['UID','iso2','iso3','Country_Region','code3']).groupby(['FIPS','Admin2','Province_State','Lat','Long_']).sum().reset_index()
     df = df.melt(id_vars=[df.columns[0],df.columns[1],df.columns[2],df.columns[3],df.columns[4]], 
@@ -48,7 +48,7 @@ df_deaths = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_
 df_recovered = transform_and_standardize(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_recovered_global.csv"), 'recovered')
 df = df_confirmed.merge(df_deaths,how='outer',on=['date', 'iso3', 'Population','Country/Region']).merge(df_recovered,how='outer',on=['date', 'iso3', 'Population','Country/Region'])
 for col in ['confirmed', 'deaths', 'recovered']:
-    df[f'{col}_rate'] = (df[col]/df['Population']*100000000).astype('int64')
+    df[f'{col}_rate'] = (df[col]/df['Population']*1000000000).astype('int64')
 
 df_confirmed_us = transform_and_standardize_us(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"), 'confirmed')
 df_deaths_us = transform_and_standardize_us(pd.read_csv(INPUT_URL+"csse_covid_19_time_series/time_series_covid19_deaths_US.csv"), 'deaths').drop(columns=['Lat','Long_'])
@@ -59,8 +59,8 @@ df_us=df_us.merge(df_lookup[['FIPS','Population']],
 df_us = df_us.astype({'FIPS':'int','confirmed':'int','deaths':'int','Population':'int'})
 df_states=df_us.drop(columns=['FIPS']).groupby(['Province_State','date',]).sum().reset_index()
 for col in ['confirmed', 'deaths']:
-    df_states[f'{col}_rate'] = (df_states[col]/df_states['Population']*100000000).astype('int64')
-    df_us[f'{col}_rate'] = (df_us[col]/df_us['Population']*100000000).astype('int64')
+    df_states[f'{col}_rate'] = (df_states[col]/df_states['Population']*1000000000).astype('int64')
+    df_us[f'{col}_rate'] = (df_us[col]/df_us['Population']*1000000000).astype('int64')
 abbreviations={
     "Alabama": ["01", "AL"],
     "Alaska": ["02", "AK"],
@@ -112,7 +112,12 @@ abbreviations={
     "Washington": ["53", "WA"],
     "West Virginia": ["54", "WV"],
     "Wisconsin": ["55", "WI"],
-    "Wyoming": ["56", "WY"]
+    "Wyoming": ["56", "WY"],
+    "American Samoa": ["60", "AS"],
+    "Guam": ["66", "GU"],
+    "Northern Mariana Islands": ["69", "MP"],
+    "Puerto Rico": ["72", "PR"],
+    "Virgin Islands": ["78", "VI"]
 }
 df_states['number']=df_states['Province_State'].map(lambda x: abbreviations[x][0])
 df_states['abbreviation']=df_states['Province_State'].map(lambda x: abbreviations[x][1])
@@ -125,6 +130,19 @@ for county in counties['features']:
     area=county['properties']['STATE']
     df_geo.setdefault(area,{'type':'FeatureCollection', 'features':[]})
     df_geo[area]['features'].append(county)
+
+colorscale=[[0.0,      'rgb(255,255,255)'],
+            [0.000001, 'rgb(255,245,240)'],
+            [0.00001,  'rgb(254,224,210)'],
+            [0.0002,   'rgb(252,187,161)'],
+            [0.0008,    'rgb(252,146,114)'],
+            [0.002,   'rgb(251,106,74)'],
+            [0.005,     'rgb(239,59,44)'],
+            [0.01,     'rgb(203,24,29)'],
+            [0.02,     'rgb(165,15,21)'],
+            [0.05,      'rgb(103,0,13)'],
+            [0.1,      'rgb(60,0,7)'],
+            [1.0,      'rgb(30,0,0)']]
 
 unixTimeMillis = lambda dt: int(time.mktime(dt.timetuple()))
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', 'https://codepen.io/chriddyp/pen/brPBPO.css']
@@ -263,7 +281,7 @@ def update_map(df_by_date, geojson_by_state, date, graph, data):
                 'lon':df_by_date['Long_'],
                 'text':df_by_date['Admin2'],
                 'customdata':["USA"]*len(df_by_date[data]),
-                'marker':{'size':[x/100 for x in df_by_date[data]],'sizemode':'area','color':'red'}
+                'marker':{'size':[x/5000 for x in df_by_date[data]],'sizemode':'area','color':'red'}
             })
         if 'choropleth' in graph:
             traces.append({
@@ -272,20 +290,11 @@ def update_map(df_by_date, geojson_by_state, date, graph, data):
                 'locations':df_by_date['FIPS'],
                 'z':df_by_date[f'{data}_rate'],
                 'zmin':0,
-                'zmax':1000000,
+                'zmax':1000000000,
                 'text':df_by_date['Admin2'],
                 'customdata':["USA"]*len(df_by_date[data]),
                 'autocolorscale':False,
-                'colorscale':[[0.0, 'rgb(255,255,255)'],
-                            [1e-06, 'rgb(255,245,240)'],
-                            [1e-05, 'rgb(254,224,210)'],
-                            [3.2e-05, 'rgb(252,187,161)'],
-                            [0.0001, 'rgb(252,146,114)'],
-                            [0.00032, 'rgb(251,106,74)'],
-                            [0.001, 'rgb(239,59,44)'],
-                            [0.01, 'rgb(203,24,29)'],
-                            [0.1, 'rgb(165,15,21)'],
-                            [1.0, 'rgb(103,0,13)']],
+                'colorscale':colorscale,
                 'showscale':False
             })
     elif 'Province_State' in df_by_date:
@@ -297,7 +306,7 @@ def update_map(df_by_date, geojson_by_state, date, graph, data):
                 'locationmode':'USA-states',
                 'text':df_by_date['Province_State'],
                 'customdata':df_by_date['number'],
-                'marker':{'size':[x/15 for x in df_by_date[data]],'sizemode':'area','color':'red'}
+                'marker':{'size':[x/1000 for x in df_by_date[data]],'sizemode':'area','color':'red'}
             })
         if 'choropleth' in graph:
             traces.append({
@@ -306,20 +315,11 @@ def update_map(df_by_date, geojson_by_state, date, graph, data):
                 'locationmode':'USA-states',
                 'z':df_by_date[f'{data}_rate'],
                 'zmin':0,
-                'zmax':1000000,
+                'zmax':1000000000,
                 'text':df_by_date['Province_State'],
                 'customdata':df_by_date['number'],
                 'autocolorscale':False,
-                'colorscale':[[0.0, 'rgb(255,255,255)'],
-                            [1e-06, 'rgb(255,245,240)'],
-                            [1e-05, 'rgb(254,224,210)'],
-                            [3.2e-05, 'rgb(252,187,161)'],
-                            [0.0001, 'rgb(252,146,114)'],
-                            [0.00032, 'rgb(251,106,74)'],
-                            [0.001, 'rgb(239,59,44)'],
-                            [0.01, 'rgb(203,24,29)'],
-                            [0.1, 'rgb(165,15,21)'],
-                            [1.0, 'rgb(103,0,13)']],
+                'colorscale':colorscale,
                 'showscale':False
             })
     else:
@@ -331,7 +331,7 @@ def update_map(df_by_date, geojson_by_state, date, graph, data):
                 'locationmode':'ISO-3',
                 'text':df_by_date['Country/Region'],
                 'customdata':["USA" if x=="USA" else "World" for x in df_by_date['iso3']],
-                'marker':{'size':[x/500 for x in df_by_date[data]],'sizemode':'area','color':'red'}
+                'marker':{'size':[x/2000 for x in df_by_date[data]],'sizemode':'area','color':'red'}
             })
         if 'choropleth' in graph:
             traces.append({
@@ -340,20 +340,11 @@ def update_map(df_by_date, geojson_by_state, date, graph, data):
                 'locationmode':'ISO-3',
                 'z':df_by_date[f'{data}_rate'],
                 'zmin':0,
-                'zmax':1000000,
+                'zmax':1000000000,
                 'text':df_by_date['Country/Region'],
                 'customdata':["USA" if x=="USA" else "World" for x in df_by_date['iso3']],
                 'autocolorscale':False,
-                'colorscale':[[0.0, 'rgb(255,255,255)'],
-                            [1e-06, 'rgb(255,245,240)'],
-                            [1e-05, 'rgb(254,224,210)'],
-                            [3.2e-05, 'rgb(252,187,161)'],
-                            [0.0001, 'rgb(252,146,114)'],
-                            [0.00032, 'rgb(251,106,74)'],
-                            [0.001, 'rgb(239,59,44)'],
-                            [0.01, 'rgb(203,24,29)'],
-                            [0.1, 'rgb(165,15,21)'],
-                            [1.0, 'rgb(103,0,13)']],
+                'colorscale':colorscale,
                 'showscale':False
             })
     return {
